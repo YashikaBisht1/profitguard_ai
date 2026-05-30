@@ -1,0 +1,49 @@
+
+> frontend@0.1.0 dev
+> next dev
+
+▲ Next.js 16.2.6 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://192.168.1.18:3000
+✓ Ready in 1334ms
+
+ GET /customer-graph-explorer 200 in 1265ms (next.js: 560ms, application-code: 706ms)
+ GET /customer-graph-explorer 200 in 158ms (next.js: 10ms, application-code: 148ms)
+ GET /customer-graph-explorer 200 in 216ms (next.js: 10ms, application-code: 206ms)
+ GET / 200 in 726ms (next.js: 136ms, application-code: 590ms)
+ GET /customer-graph-explorer 200 in 143ms (next.js: 9ms, application-code: 134ms)
+✓ Compiled in 6.8s
+ GET /customer-graph-explorer 200 in 4.5s (next.js: 2.6s, application-code: 1899ms)
+ GET /customer-graph-explorer 200 in 509ms (next.js: 96ms, application-code: 413ms)
+✓ Finished filesystem cache database compaction in 14.5s
+ GET / 200 in 1018ms (next.js: 91ms, application-code: 927ms)
+○ Compiling /fraud-detection ...
+ GET /customer-graph-explorer 200 in 3.2s (next.js: 241ms, application-code: 3.0s)
+ GET /fraud-detection 200 in 11.6s (next.js: 11.2s, application-code: 396ms)
+ GET /fraud-detection 200 in 624ms (next.js: 19ms, application-code: 605ms)
+ GET /fraud-detection 200 in 311ms (next.js: 57ms, application-code: 254ms)
+ GET /customer-graph-explorer 200 in 204ms (next.js: 14ms, application-code: 190ms)
+ GET / 200 in 170ms (next.js: 79ms, application-code: 91ms)
+ GET / 200 in 338ms (next.js: 13ms, application-code: 325ms)
+ GET /customer-graph-explorer 200 in 4.9s (next.js: 1899ms, application-code: 3.0s)
+ GET /customer-graph-explorer 200 in 2.2s (next.js: 150ms, application-code: 2.0s)
+ GET /customer-graph-explorer 200 in 1387ms (next.js: 171ms, application-code: 1216ms)
+ GET /fraud-detection 200 in 971ms (next.js: 144ms, application-code: 827ms)
+○ Compiling /analyze-return ...
+ GET /analyze-return 200 in 2.1s (next.js: 1006ms, application-code: 1056ms)
+ GET /analyze-return 200 in 7.7s (next.js: 7.3s, application-code: 428ms)
+ GET /analyze-return 200 in 545ms (next.js: 84ms, application-code: 461ms)
+ GET /analyze-return 200 in 439ms (next.js: 91ms, application-code: 347ms)
+ GET /customer-graph-explorer 200 in 1994ms (next.js: 310ms, application-code: 1683ms)
+✓ Compiled in 306ms
+ GET /customer-graph-explorer 200 in 2.0s (next.js: 473ms, application-code: 1537ms)
+ GET /customer-graph-explorer 200 in 2.1s (next.js: 848ms, application-code: 1264ms)
+✓ Compiled in 802ms
+ GET /customer-graph-explorer 200 in 5.2s (next.js: 2.1s, application-code: 3.1s)
+ GET /customer-graph-explorer 200 in 687ms (next.js: 56ms, application-code: 631ms)
+ GET / 200 in 4.9s (next.js: 1783ms, application-code: 3.1s)
+ GET /customer-graph-explorer 200 in 1627ms (next.js: 131ms, application-code: 1496ms)
+ GET /analyze-return 200 in 1459ms (next.js: 954ms, application-code: 505ms)
+ GET / 200 in 4.7s (next.js: 48ms, application-code: 4.6s)
+ GET / 200 in 462ms (next.js: 125ms, application-code: 337ms)
+ GET /analyze-return 200 in 4.2s (next.js: 66ms, application-code: 4.1s)

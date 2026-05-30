@@ -1,0 +1,38 @@
+# Python Cache and Environments
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+.venv/
+venv/
+ENV/
+env/
+backend/venv/
+
+# Node.js and Next.js builds
+node_modules/
+.next/
+out/
+build/
+dist/
+.next/
+
+# Environment secrets
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+**/.env
+**/.env.local
+
+# IDEs and OS files
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.DS_Store
+Thumbs.db
