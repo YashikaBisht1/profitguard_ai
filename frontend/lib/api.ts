@@ -10,7 +10,8 @@ import {
 } from "./mockData";
 
 // Backend endpoint configuration
-const BACKEND_URL = "http://localhost:8000/api/v1";
+const BASE_API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const BACKEND_URL = `${BASE_API_URL}/api/v1`;
 
 const client = axios.create({
   baseURL: BACKEND_URL,
@@ -19,6 +20,7 @@ const client = axios.create({
     "Content-Type": "application/json",
   },
 });
+
 
 export interface ApiConnectionStatus {
   isConnected: boolean;
@@ -37,7 +39,7 @@ export interface CustomerGraphResponse {
 export async function checkBackendConnection(): Promise<ApiConnectionStatus> {
   try {
     // Health endpoint on backend is at root tags or /health (from routes/health.py)
-    const res = await axios.get("http://localhost:8000/health", { timeout: 1500 });
+    const res = await axios.get(`${BASE_API_URL}/health`, { timeout: 1500 });
     if (res.status === 200) {
       return { isConnected: true, mode: "LIVE API" };
     }
@@ -102,7 +104,7 @@ export async function getCustomerGraph(
 ): Promise<{ data: CustomerGraphResponse; source: "LIVE API" | "DEMO SIMULATION" }> {
   try {
     const response = await axios.get<CustomerGraphResponse>(
-      `http://localhost:8000/api/customer/${encodeURIComponent(customerId)}/graph`,
+      `${BASE_API_URL}/api/customer/${encodeURIComponent(customerId)}/graph`,
       { timeout: 5000 }
     );
     return { data: response.data, source: "LIVE API" };
