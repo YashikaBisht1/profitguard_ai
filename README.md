@@ -120,3 +120,10 @@ Execute the Cypher queries in [seed.cypher](file:///c:/Users/bisht/profitguard_a
    ```
 4. Access the web console at [http://localhost:3000](http://localhost:3000).
    *Note: If the backend is not connected, the UI automatically falls back to **Demo Simulation mode** to allow visual explorations of the graph networks.*
+
+### 4. Deploying to Render
+The backend is pre-configured for automated deployment to Render using the Blueprint architecture:
+1. Create a **Blueprint** service on the Render Dashboard.
+2. Link this GitHub repository. Render will parse [render.yaml](file:///c:/Users/bisht/profitguard_ai/render.yaml) and automatically configure the Python environment, build commands, and start scripts.
+3. Provide the environment values when prompted: `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD`, and `GROQ_API_KEY`.
+4. Your API endpoints will be live at `https://your-service-name.onrender.com/docs`.
