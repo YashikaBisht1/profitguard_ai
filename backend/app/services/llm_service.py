@@ -5,6 +5,7 @@ from typing import Any
 from groq import AsyncGroq
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
+from app.models.graph_context import FraudContext
 from app.prompts.fraud import FRAUD_ANALYSIS_JSON_PROMPT
 from app.utils.config import settings
 from app.utils.scoring import clamp_score
@@ -18,6 +19,8 @@ class FraudLlmDecision(BaseModel):
     risk_score: float = Field(..., ge=0, le=1)
     reasoning: str
     alternatives: list[str]
+    flags: list[str] = Field(default_factory=list)
+    graph_evidence: list[str] = Field(default_factory=list)
 
     @field_validator("decision")
     @classmethod
@@ -44,19 +47,29 @@ class GroqFraudAnalysisService:
     async def analyze(
         self,
         *,
-        graph_context: dict[str, Any],
+        graph_context: FraudContext | dict[str, Any],
         evidence: list[dict[str, Any]],
         risk_score: float,
         decision: str,
         recommendations: list[dict[str, Any]],
+        graph_rag_context: str | None = None,
     ) -> FraudLlmDecision:
+        # Convert graph_context to dict if it is a Pydantic model
+        graph_context_dict = (
+            graph_context.model_dump()
+            if hasattr(graph_context, "model_dump")
+            else graph_context
+        )
+
         payload = {
-            "graph_context": graph_context,
+            "graph_context": graph_context_dict,
             "evidence": evidence,
             "computed_risk_score": risk_score,
             "computed_decision": decision,
             "recommendations": recommendations,
         }
+        if graph_rag_context:
+            payload["graph_rag_context"] = graph_rag_context
 
         if self._client is None:
             return self._fallback(payload)
@@ -118,12 +131,22 @@ class GroqFraudAnalysisService:
         else:
             decision = "approve"
 
+        is_empty = (
+            len(evidence) == 0
+            and score <= 0.15
+            and not payload.get("graph_context", {}).get("linked_payment_customers")
+            and not payload.get("graph_context", {}).get("linked_address_customers")
+        )
+        confidence = 0.20 if is_empty else clamp_score(0.55 + min(len(evidence) * 0.08, 0.35))
+
         return FraudLlmDecision(
             decision=decision,
-            confidence=clamp_score(0.55 + min(len(evidence) * 0.08, 0.35)),
+            confidence=confidence,
             risk_score=score,
             reasoning=self._fallback_reasoning(evidence, score),
             alternatives=recommendation_text[:3] or ["Review graph evidence before fulfillment decisions."],
+            flags=[item.get("type", "") for item in evidence],
+            graph_evidence=payload.get("graph_context", {}).get("graph_evidence", []),
         )
 
     def _fallback_reasoning(self, evidence: list[dict[str, Any]], score: float) -> str:

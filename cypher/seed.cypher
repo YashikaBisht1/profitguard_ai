@@ -483,3 +483,15 @@ CREATE (o)-[:RETURNED {
 // MATCH (:Customer {customerId:'CUST-030'})-[:PLACED]->(:Order)-[:CONTAINS]->(:Product)-[:BELONGS_TO]->(cat:Category)<-[:BELONGS_TO]-(rec:Product)
 // RETURN DISTINCT rec.name, rec.brand, cat.name
 // LIMIT 10;
+
+// -----------------------------------------------------------------------------
+// Decouple Emails and Email Domains to separate nodes
+// -----------------------------------------------------------------------------
+MATCH (c:Customer)
+WITH c, split(c.email, '@')[1] AS domainName
+MERGE (d:EmailDomain {domainName: domainName})
+MERGE (e:Email {normalizedEmail: c.normalizedEmail})
+ON CREATE SET e.rawEmail = c.email
+MERGE (c)-[:HAS_EMAIL]->(e)
+MERGE (e)-[:BELONGS_TO_DOMAIN]->(d);
+

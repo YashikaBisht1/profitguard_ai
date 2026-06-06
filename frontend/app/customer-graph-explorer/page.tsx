@@ -153,6 +153,10 @@ function GraphExplorerContent() {
         return "#8b5cf6"; // violet
       case "coupon":
         return "#ec4899"; // pink
+      case "email":
+        return "#eab308"; // amber/gold
+      case "email_domain":
+        return "#f97316"; // orange
       default:
         return "#94a3b8";
     }

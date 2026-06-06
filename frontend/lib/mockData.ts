@@ -11,6 +11,13 @@ export interface Recommendation {
   reason: string;
 }
 
+export interface FraudFeatures {
+  linkage_score: number;
+  coupon_abuse_score: number;
+  return_risk_score: number;
+  graph_evidence: string[];
+}
+
 export interface FraudCheckResponse {
   customer_id: string;
   order_id: string | null;
@@ -24,6 +31,10 @@ export interface FraudCheckResponse {
   graph_context: Record<string, any>;
   recommendations: Recommendation[];
   prompt_context: string;
+  flags: string[];
+  graph_evidence: string[];
+  features: FraudFeatures;
+  score_breakdown: Record<string, number>;
 }
 
 export interface ReturnAnalysisResponse {
@@ -435,6 +446,38 @@ export function mockCheckFraud(request: {
     coupon_codes: customer.accountStatus === "COUPON_WATCH" ? ["WELCOME50", "FLASH70"] : [],
   };
 
+  const graph_evidence: string[] = [];
+  if (sharedPaymentCount > 0) {
+    const linked = mockCustomers.filter(c => c.customerId !== customer.customerId && c.paymentFingerprint === customer.paymentFingerprint).slice(0, 3).map(c => c.customerId);
+    linked.forEach(cid => {
+      graph_evidence.push(`Customer shares payment method with ${cid}`);
+    });
+  }
+  if (sharedAddressCount > 0) {
+    const linked = mockCustomers.filter(c => c.customerId !== customer.customerId && c.addressHash === customer.addressHash).slice(0, 3).map(c => c.customerId);
+    linked.forEach(cid => {
+      graph_evidence.push(`Customer shares address with ${cid}`);
+    });
+  }
+
+  // Mock derived fraud features
+  const linkage_score = Math.min((sharedPaymentCount + sharedAddressCount) * 0.15, 1.0);
+  const coupon_abuse_score = Math.min(couponAbuseOrderCount * 0.2, 1.0);
+  const return_risk_score = Math.min(highRiskOrderCount * 0.2, 1.0);
+
+  const features: FraudFeatures = {
+    linkage_score,
+    coupon_abuse_score,
+    return_risk_score,
+    graph_evidence,
+  };
+
+  const score_breakdown = {
+    linkage: linkage_score,
+    coupon_abuse: coupon_abuse_score,
+    returns: return_risk_score,
+  };
+
   return {
     customer_id: customer.customerId,
     order_id: request.order_id || null,
@@ -448,6 +491,10 @@ export function mockCheckFraud(request: {
     graph_context: graphContext,
     recommendations,
     prompt_context: "SYSTEM: Analyze customer entity risk using GraphRAG indicators including payment, address, and device links.",
+    flags: evidence.map(e => e.type),
+    graph_evidence,
+    features,
+    score_breakdown,
   };
 }
 
@@ -584,7 +631,7 @@ export function mockAnalyzeReturn(request: {
 export interface GraphNode {
   id: string;
   label: string;
-  type: "customer" | "order" | "address" | "payment" | "coupon";
+  type: "customer" | "order" | "address" | "payment" | "coupon" | "email" | "email_domain";
   riskScore?: number;
   val: number; // size
   x?: number;

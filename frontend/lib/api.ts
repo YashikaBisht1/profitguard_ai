@@ -15,7 +15,7 @@ const BACKEND_URL = `${BASE_API_URL}/api/v1`;
 
 const client = axios.create({
   baseURL: BACKEND_URL,
-  timeout: 5000, // 5s timeout
+  timeout: 15000, // 15s timeout to prevent premature fallbacks
   headers: {
     "Content-Type": "application/json",
   },
@@ -105,7 +105,7 @@ export async function getCustomerGraph(
   try {
     const response = await axios.get<CustomerGraphResponse>(
       `${BASE_API_URL}/api/customer/${encodeURIComponent(customerId)}/graph`,
-      { timeout: 5000 }
+      { timeout: 15000 }
     );
     return { data: response.data, source: "LIVE API" };
   } catch (err) {

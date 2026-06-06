@@ -320,6 +320,56 @@ function FraudDetectionContent() {
                 </div>
               </div>
 
+              {/* Score Breakdown Panel */}
+              {result.score_breakdown && (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  {/* Linkage Card */}
+                  <div className="glass-panel rounded-xl p-4 flex flex-col gap-2 border border-white/5 bg-slate-900/20">
+                    <div className="flex justify-between items-center text-xs font-mono text-slate-400">
+                      <span>LINKAGE RISK</span>
+                      <span className="text-white font-bold">{Math.round((result.score_breakdown.linkage || 0) * 100)}%</span>
+                    </div>
+                    <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                      <div
+                        className="bg-rose-500 h-1.5 rounded-full"
+                        style={{ width: `${(result.score_breakdown.linkage || 0) * 100}%` }}
+                      />
+                    </div>
+                    <p className="text-[10px] text-slate-500">Connection strength to shared payment/address entities.</p>
+                  </div>
+
+                  {/* Coupon Abuse Card */}
+                  <div className="glass-panel rounded-xl p-4 flex flex-col gap-2 border border-white/5 bg-slate-900/20">
+                    <div className="flex justify-between items-center text-xs font-mono text-slate-400">
+                      <span>COUPON ABUSE RISK</span>
+                      <span className="text-white font-bold">{Math.round((result.score_breakdown.coupon_abuse || 0) * 100)}%</span>
+                    </div>
+                    <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                      <div
+                        className="bg-cyan-500 h-1.5 rounded-full"
+                        style={{ width: `${(result.score_breakdown.coupon_abuse || 0) * 100}%` }}
+                      />
+                    </div>
+                    <p className="text-[10px] text-slate-500">Ratio of orders associated with coupon campaigns.</p>
+                  </div>
+
+                  {/* Returns Card */}
+                  <div className="glass-panel rounded-xl p-4 flex flex-col gap-2 border border-white/5 bg-slate-900/20">
+                    <div className="flex justify-between items-center text-xs font-mono text-slate-400">
+                      <span>RETURN RISK</span>
+                      <span className="text-white font-bold">{Math.round((result.score_breakdown.returns || 0) * 100)}%</span>
+                    </div>
+                    <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                      <div
+                        className="bg-amber-500 h-1.5 rounded-full"
+                        style={{ width: `${(result.score_breakdown.returns || 0) * 100}%` }}
+                      />
+                    </div>
+                    <p className="text-[10px] text-slate-500">Ratio of high-risk or flagged returns.</p>
+                  </div>
+                </div>
+              )}
+
               {/* AI Explanation Card */}
               <div className="glass-panel rounded-xl p-5 border border-indigo-500/10">
                 <div className="flex justify-between items-center mb-3">
@@ -336,6 +386,23 @@ function FraudDetectionContent() {
                   {result.reasoning}
                 </div>
               </div>
+
+              {/* Graph Evidence Card */}
+              {result.graph_evidence && result.graph_evidence.length > 0 && (
+                <div className="glass-panel rounded-xl p-5 border border-emerald-500/10">
+                  <h3 className="text-sm font-semibold text-white font-mono uppercase tracking-wider border-b border-white/5 pb-2 mb-3">
+                    CONNECTED ENTITY EVIDENCE (GraphRAG)
+                  </h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {result.graph_evidence.map((evidenceText, idx) => (
+                      <div key={idx} className="p-3 rounded bg-emerald-950/20 border border-emerald-500/10 flex items-center gap-2.5 text-xs text-emerald-400 font-mono">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0 animate-pulse" />
+                        <span>{evidenceText}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Evidence & Recommendations Grid */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
