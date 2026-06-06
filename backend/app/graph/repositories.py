@@ -1,20 +1,27 @@
+import logging
+import time
 from typing import Any
 
 from neo4j.exceptions import Neo4jError, ServiceUnavailable
 
 from app.graph.neo4j import neo4j_manager
 from app.models.requests import FraudCheckRequest, ReturnAnalysisRequest
+from app.models.graph_context import CustomerGraphResponse, FraudContext, ReturnContext, CustomerGraphNode, CustomerGraphLink
+
+logger = logging.getLogger(__name__)
 
 
 class FraudGraphRepository:
-    async def fetch_customer_graph(self, customer_id: str) -> dict[str, Any]:
+    async def fetch_customer_graph(self, customer_id: str) -> CustomerGraphResponse:
         query = """
         MATCH (root:Customer {customerId: $customer_id})
-        OPTIONAL MATCH directPath = (root)-[:USES_ADDRESS|USES_PAYMENT|SHARES_ADDRESS_WITH|SHARES_PAYMENT_WITH]-(direct)
+        OPTIONAL MATCH directPath = (root)-[:USES_ADDRESS|USES_PAYMENT|HAS_EMAIL|SHARES_ADDRESS_WITH|SHARES_PAYMENT_WITH]-(direct)
         WITH root, collect(DISTINCT directPath) AS directPaths
-        OPTIONAL MATCH neighborPath = (root)-[:SHARES_ADDRESS_WITH|SHARES_PAYMENT_WITH]-(linked:Customer)-[:USES_ADDRESS|USES_PAYMENT]->(resource)
-        WITH root, directPaths, collect(DISTINCT neighborPath) AS neighborPaths
-        WITH root, [path IN directPaths + neighborPaths WHERE path IS NOT NULL] AS paths
+        OPTIONAL MATCH emailDomainPath = (root)-[:HAS_EMAIL]->(:Email)-[:BELONGS_TO_DOMAIN]->(:EmailDomain)
+        WITH root, directPaths, collect(DISTINCT emailDomainPath) AS domainPaths
+        OPTIONAL MATCH neighborPath = (root)-[:SHARES_ADDRESS_WITH|SHARES_PAYMENT_WITH]-(linked:Customer)-[:USES_ADDRESS|USES_PAYMENT|HAS_EMAIL]->(resource)
+        WITH root, directPaths, domainPaths, collect(DISTINCT neighborPath) AS neighborPaths
+        WITH root, [path IN directPaths + domainPaths + neighborPaths WHERE path IS NOT NULL] AS paths
         WITH root, paths,
              reduce(allNodes = [root], path IN paths | allNodes + nodes(path)) AS pathNodes,
              reduce(allRelationships = [], path IN paths | allRelationships + relationships(path)) AS pathRelationships
@@ -23,37 +30,59 @@ class FraudGraphRepository:
         RETURN root, nodes, pathRelationships AS relationships
         """
         try:
+            start_time = time.perf_counter()
             async with neo4j_manager.session() as session:
                 result = await session.run(query, customer_id=customer_id)
                 record = await result.single()
+                elapsed = (time.perf_counter() - start_time) * 1000
+                logger.info(f"fetch_customer_graph query executed in {elapsed:.2f}ms for customer {customer_id}")
                 if not record:
-                    return {"customer_id": customer_id, "nodes": [], "links": []}
-                return self._format_customer_graph(customer_id, record["nodes"], record["relationships"])
+                    return CustomerGraphResponse(customer_id=customer_id, nodes=[], links=[], graph_available=True)
+                formatted = self._format_customer_graph(customer_id, record["nodes"], record["relationships"])
+                return CustomerGraphResponse(**formatted)
         except (ServiceUnavailable, Neo4jError) as exc:
-            return {"customer_id": customer_id, "nodes": [], "links": [], "graph_available": False, "graph_error": exc.__class__.__name__}
+            return CustomerGraphResponse(
+                customer_id=customer_id,
+                nodes=[],
+                links=[],
+                graph_available=False,
+                graph_error=exc.__class__.__name__
+            )
 
-    async def fetch_fraud_context(self, request: FraudCheckRequest) -> dict[str, Any]:
+    async def fetch_fraud_context(self, request: FraudCheckRequest) -> FraudContext:
         query = """
         MATCH (c:Customer {customerId: $customer_id})
         OPTIONAL MATCH (c)-[:PLACED]->(o:Order)
-        OPTIONAL MATCH (c)-[sp:SHARES_PAYMENT_WITH]-(:Customer)
-        OPTIONAL MATCH (c)-[sa:SHARES_ADDRESS_WITH]-(:Customer)
-        OPTIONAL MATCH (c)-[:PLACED]->(:Order)-[:USED]->(coupon:Coupon)
+        OPTIONAL MATCH (o)-[:RETURNED]->(rr:ReturnRequest)
+        OPTIONAL MATCH (c)-[sp:SHARES_PAYMENT_WITH]-(paymentLinked:Customer)
+        OPTIONAL MATCH (c)-[sa:SHARES_ADDRESS_WITH]-(addressLinked:Customer)
+        OPTIONAL MATCH (o)-[:USED]->(coupon:Coupon)
         OPTIONAL MATCH (pm:PaymentMethod {paymentFingerprint: $payment_fingerprint})
         OPTIONAL MATCH (addr:Address {addressHash: $address_hash})
+        OPTIONAL MATCH (c)-[:HAS_EMAIL]->(e:Email)
+        OPTIONAL MATCH (e)-[:BELONGS_TO_DOMAIN]->(ed:EmailDomain)
+        OPTIONAL MATCH (e)<-[:HAS_EMAIL]-(emailLinked:Customer) WHERE emailLinked <> c
         RETURN
           c.customerId AS customer_id,
           c.riskScore AS customer_risk_score,
           c.accountStatus AS account_status,
-          count(DISTINCT sp) AS shared_payment_count,
-          count(DISTINCT sa) AS shared_address_count,
-          count(DISTINCT CASE WHEN o.fraudStatus <> 'CLEAR' THEN o END) AS high_risk_order_count,
+          count(DISTINCT paymentLinked.customerId) AS shared_payment_count,
+          count(DISTINCT addressLinked.customerId) AS shared_address_count,
+          count(DISTINCT emailLinked.customerId) AS shared_email_count,
+          count(DISTINCT CASE WHEN o.fraudStatus <> 'CLEAR' OR rr.returnStatus IN ['REJECTED', 'MANUAL_REVIEW'] THEN o END) AS high_risk_order_count,
           count(DISTINCT CASE WHEN coupon.campaignId STARTS WITH 'CMP-ABUSE' OR coupon.campaignId IN ['CMP-RETURN-LOOP', 'CMP-GIFTCARD-RISK', 'CMP-FLASH-RISK'] THEN o END) AS coupon_abuse_order_count,
           pm IS NOT NULL AS payment_fingerprint_match,
           addr IS NOT NULL AS address_hash_match,
-          collect(DISTINCT coupon.code)[0..10] AS coupon_codes
+          collect(DISTINCT coupon.code)[0..10] AS coupon_codes,
+          collect(DISTINCT paymentLinked.customerId)[0..10] AS linked_payment_customers,
+          collect(DISTINCT addressLinked.customerId)[0..10] AS linked_address_customers,
+          collect(DISTINCT emailLinked.customerId)[0..10] AS linked_email_customers,
+          ed.domainName AS email_domain,
+          count(DISTINCT o) AS total_order_count,
+          count(DISTINCT CASE WHEN rr IS NOT NULL THEN o END) AS returned_order_count
         """
         try:
+            start_time = time.perf_counter()
             async with neo4j_manager.session() as session:
                 result = await session.run(
                     query,
@@ -63,31 +92,41 @@ class FraudGraphRepository:
                     address_hash=request.address_hash,
                 )
                 record = await result.single()
-                return dict(record) if record else self._empty_fraud_context(request)
+                elapsed = (time.perf_counter() - start_time) * 1000
+                logger.info(f"fetch_fraud_context query executed in {elapsed:.2f}ms for customer {request.customer_id}")
+                return FraudContext(**record) if record else self._empty_fraud_context(request)
         except (ServiceUnavailable, Neo4jError) as exc:
             return self._unavailable_fraud_context(request, exc)
 
-    async def fetch_return_context(self, request: ReturnAnalysisRequest) -> dict[str, Any]:
+    async def fetch_return_context(self, request: ReturnAnalysisRequest) -> ReturnContext:
         query = """
         MATCH (c:Customer {customerId: $customer_id})
-        OPTIONAL MATCH (c)-[:PLACED]->(o:Order)-[:RETURNED]->(rr:ReturnRequest)
-        OPTIONAL MATCH (c)-[sp:SHARES_PAYMENT_WITH]-(:Customer)
-        OPTIONAL MATCH (c)-[sa:SHARES_ADDRESS_WITH]-(:Customer)
+        OPTIONAL MATCH (c)-[:PLACED]->(o_placed:Order)
+        WITH c, count(DISTINCT o_placed) AS total_order_count, coalesce(sum(o_placed.totalAmount), 0.0) AS total_spent_amount
+        OPTIONAL MATCH (c)-[:PLACED]->(o_ret:Order)-[:RETURNED]->(rr:ReturnRequest)
+        OPTIONAL MATCH (c)-[sp:SHARES_PAYMENT_WITH]-(paymentLinked:Customer)
+        OPTIONAL MATCH (c)-[sa:SHARES_ADDRESS_WITH]-(addressLinked:Customer)
         OPTIONAL MATCH (targetOrder:Order {orderId: $order_id})-[:CONTAINS]->(p:Product)-[:BELONGS_TO]->(cat:Category)
         RETURN
           c.customerId AS customer_id,
           c.riskScore AS customer_risk_score,
           c.accountStatus AS account_status,
+          total_order_count,
+          total_spent_amount,
           count(DISTINCT rr) AS return_count,
+          coalesce(sum(rr.refundAmount), 0.0) AS total_refund_amount,
           count(DISTINCT CASE WHEN rr.returnStatus = 'MANUAL_REVIEW' THEN rr END) AS manual_review_return_count,
           count(DISTINCT CASE WHEN rr.returnStatus = 'REJECTED' THEN rr END) AS rejected_return_count,
           count(DISTINCT CASE WHEN rr.refundAmount >= 300 THEN rr END) AS high_value_return_count,
-          count(DISTINCT sp) AS shared_payment_count,
-          count(DISTINCT sa) AS shared_address_count,
+          count(DISTINCT paymentLinked.customerId) AS shared_payment_count,
+          count(DISTINCT addressLinked.customerId) AS shared_address_count,
           collect(DISTINCT cat.name)[0..8] AS product_categories,
-          collect(DISTINCT p.name)[0..8] AS product_names
+          collect(DISTINCT p.name)[0..8] AS product_names,
+          collect(DISTINCT paymentLinked.customerId)[0..10] AS linked_payment_customers,
+          collect(DISTINCT addressLinked.customerId)[0..10] AS linked_address_customers
         """
         try:
+            start_time = time.perf_counter()
             async with neo4j_manager.session() as session:
                 result = await session.run(
                     query,
@@ -97,51 +136,59 @@ class FraudGraphRepository:
                     reason_text=request.reason_text,
                 )
                 record = await result.single()
-                return dict(record) if record else self._empty_return_context(request)
+                elapsed = (time.perf_counter() - start_time) * 1000
+                logger.info(f"fetch_return_context query executed in {elapsed:.2f}ms for customer {request.customer_id}")
+                return ReturnContext(**record) if record else self._empty_return_context(request)
         except (ServiceUnavailable, Neo4jError) as exc:
             return self._unavailable_return_context(request, exc)
 
-    def _empty_fraud_context(self, request: FraudCheckRequest) -> dict[str, Any]:
-        return {
-            "customer_id": request.customer_id,
-            "customer_risk_score": 0.0,
-            "account_status": "UNKNOWN",
-            "shared_payment_count": 0,
-            "shared_address_count": 0,
-            "high_risk_order_count": 0,
-            "coupon_abuse_order_count": 0,
-            "payment_fingerprint_match": False,
-            "address_hash_match": False,
-            "coupon_codes": [],
-            "graph_available": True,
-        }
+    def _empty_fraud_context(self, request: FraudCheckRequest) -> FraudContext:
+        return FraudContext(
+            customer_id=request.customer_id,
+            customer_risk_score=0.0,
+            account_status="UNKNOWN",
+            shared_payment_count=0,
+            shared_address_count=0,
+            high_risk_order_count=0,
+            coupon_abuse_order_count=0,
+            payment_fingerprint_match=False,
+            address_hash_match=False,
+            coupon_codes=[],
+            linked_payment_customers=[],
+            linked_address_customers=[],
+            total_order_count=0,
+            returned_order_count=0,
+            graph_available=True,
+        )
 
-    def _empty_return_context(self, request: ReturnAnalysisRequest) -> dict[str, Any]:
-        return {
-            "customer_id": request.customer_id,
-            "customer_risk_score": 0.0,
-            "account_status": "UNKNOWN",
-            "return_count": 0,
-            "manual_review_return_count": 0,
-            "rejected_return_count": 0,
-            "high_value_return_count": 0,
-            "shared_payment_count": 0,
-            "shared_address_count": 0,
-            "product_categories": [],
-            "product_names": [],
-            "graph_available": True,
-        }
+    def _empty_return_context(self, request: ReturnAnalysisRequest) -> ReturnContext:
+        return ReturnContext(
+            customer_id=request.customer_id,
+            customer_risk_score=0.0,
+            account_status="UNKNOWN",
+            return_count=0,
+            manual_review_return_count=0,
+            rejected_return_count=0,
+            high_value_return_count=0,
+            shared_payment_count=0,
+            shared_address_count=0,
+            product_categories=[],
+            product_names=[],
+            linked_payment_customers=[],
+            linked_address_customers=[],
+            graph_available=True,
+        )
 
-    def _unavailable_fraud_context(self, request: FraudCheckRequest, exc: Exception) -> dict[str, Any]:
+    def _unavailable_fraud_context(self, request: FraudCheckRequest, exc: Exception) -> FraudContext:
         context = self._empty_fraud_context(request)
-        context["graph_available"] = False
-        context["graph_error"] = exc.__class__.__name__
+        context.graph_available = False
+        context.graph_error = exc.__class__.__name__
         return context
 
-    def _unavailable_return_context(self, request: ReturnAnalysisRequest, exc: Exception) -> dict[str, Any]:
+    def _unavailable_return_context(self, request: ReturnAnalysisRequest, exc: Exception) -> ReturnContext:
         context = self._empty_return_context(request)
-        context["graph_available"] = False
-        context["graph_error"] = exc.__class__.__name__
+        context.graph_available = False
+        context.graph_error = exc.__class__.__name__
         return context
 
     def _format_customer_graph(self, customer_id: str, nodes: list[Any], relationships: list[Any]) -> dict[str, Any]:
@@ -194,6 +241,10 @@ class FraudGraphRepository:
             return properties.get("addressHash") or properties.get("addressId")
         if "PaymentMethod" in labels:
             return properties.get("paymentFingerprint") or properties.get("paymentMethodId")
+        if "Email" in labels:
+            return properties.get("normalizedEmail")
+        if "EmailDomain" in labels:
+            return properties.get("domainName")
         return None
 
     def _node_type(self, labels: set[str]) -> str:
@@ -203,6 +254,10 @@ class FraudGraphRepository:
             return "address"
         if "PaymentMethod" in labels:
             return "payment"
+        if "Email" in labels:
+            return "email"
+        if "EmailDomain" in labels:
+            return "email_domain"
         return "customer"
 
     def _node_label(self, labels: set[str], properties: dict[str, Any], node_id: str) -> str:
@@ -214,6 +269,10 @@ class FraudGraphRepository:
             brand = properties.get("cardBrand") or properties.get("paymentType") or "Payment"
             last4 = properties.get("last4")
             return f"{brand} {last4 or ''} ({node_id})"
+        if "Email" in labels:
+            return f"Email: {properties.get('rawEmail') or node_id}"
+        if "EmailDomain" in labels:
+            return f"Domain: {node_id}"
         return node_id
 
     def _node_size(self, labels: set[str], properties: dict[str, Any], is_root: bool) -> int:
@@ -221,6 +280,10 @@ class FraudGraphRepository:
             return 32
         if "Customer" in labels:
             return 24 if float(properties.get("riskScore") or 0) >= 0.7 else 18
+        if "Email" in labels:
+            return 16
+        if "EmailDomain" in labels:
+            return 14
         return 16
 
     def _json_properties(self, properties: dict[str, Any]) -> dict[str, Any]:
